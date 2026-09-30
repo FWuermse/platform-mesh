@@ -95,7 +95,7 @@ func TestSentryError(t *testing.T) {
 		sErr, ok := AsSentryError(newSentryError)
 		assert.True(t, ok)
 
-		sErr.WithUserMessage("something went wrong", "FORBIDDEN")
+		_ = sErr.WithUserMessage("something went wrong", "FORBIDDEN")
 
 		assert.Equal(t, "something went wrong", sErr.GetUserMessage())
 		assert.Equal(t, "FORBIDDEN", sErr.GetCode())
@@ -106,7 +106,7 @@ func TestSentryError(t *testing.T) {
 		sErr, ok := AsSentryError(SentryError(technical))
 		assert.True(t, ok)
 
-		sErr.WithUserMessage("you don't have access to this resource", "FORBIDDEN")
+		_ = sErr.WithUserMessage("you don't have access to this resource", "FORBIDDEN")
 
 		assert.Equal(t, "user with id abc has no access to resource XYZ", sErr.GetReason().Error())
 	})

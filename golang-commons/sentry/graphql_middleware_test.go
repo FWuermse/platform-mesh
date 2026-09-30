@@ -128,7 +128,7 @@ func TestGraphQLErrorPresenterWithUserMessage(t *testing.T) {
 	technical := errors.New("user with id abc has no access to resource XYZ")
 	sentryErr, ok := AsSentryError(SentryError(technical))
 	assert.True(t, ok)
-	sentryErr.WithUserMessage("you don't have access to this resource", "FORBIDDEN")
+	_ = sentryErr.WithUserMessage("you don't have access to this resource", "FORBIDDEN")
 
 	ctx := pmcontext.AddTenantToContext(context.Background(), "test")
 
