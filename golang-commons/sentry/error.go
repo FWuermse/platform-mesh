@@ -85,11 +85,11 @@ func (e *Error) WithUserMessage(msg, code string) SentryErrors {
 	return e
 }
 
-func (e Error) GetUserMessage() string {
+func (e *Error) GetUserMessage() string {
 	return e.userMessage
 }
 
-func (e Error) GetCode() string {
+func (e *Error) GetCode() string {
 	return e.code
 }
 
