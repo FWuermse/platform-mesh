@@ -167,7 +167,7 @@ func renderHelmReleaseGraph(t *testing.T, sub *DeploymentSubroutine, inst *pmcor
 	}
 
 	// Component services: gotemplates/components/infra/helmreleases.yaml
-	componentVars, err := sub.buildComponentsTemplateVars(ctx, inst, apiextensionsv1.JSON{})
+	componentVars, _, err := sub.buildComponentsTemplateVars(ctx, inst, apiextensionsv1.JSON{})
 	require.NoError(t, err)
 	collect(filepath.Join("..", "..", "gotemplates", "components", "infra", "helmreleases.yaml"), componentVars)
 

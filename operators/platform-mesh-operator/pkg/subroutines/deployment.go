@@ -246,12 +246,18 @@ func (r *DeploymentSubroutine) Process(ctx context.Context, runtimeObj ctrlrunti
 	deploymentTech = strings.ToLower(deploymentTech)
 
 	// Render and apply components infra templates (HelmReleases for services)
-	oErr = r.renderAndApplyComponentsInfraTemplates(ctx, inst, templateVars)
+	disabled, oErr := r.renderAndApplyComponentsInfraTemplates(ctx, inst, templateVars)
 	if oErr != nil {
 		log.Error().Err(oErr).Msg("Failed to render and apply components infra templates")
 		return subroutines.OK(), oErr
 	}
 	log.Debug().Msg("Successfully rendered and applied components infra templates")
+
+	oErr = deleteDisabledHelmReleases(ctx, r.clientInfra, disabled, log)
+	if oErr != nil {
+		log.Error().Err(oErr).Msg("Failed to delete disabled HelmReleases")
+		return subroutines.OK(), oErr
+	}
 
 	for _, crd := range []string{"issuers.cert-manager.io", "certificates.cert-manager.io"} {
 		established, err := isCRDEstablished(ctx, r.clientRuntime, crd)
@@ -543,25 +549,25 @@ func (r *DeploymentSubroutine) buildRuntimeTemplateVars(ctx context.Context, ins
 
 // buildComponentsTemplateVars parses components profile using TemplateVars and produces the data
 // structure expected by gotemplates/components (root keys: values, releaseNamespace).
-func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, inst *pmcorev1alpha1.PlatformMesh, templateVars apiextensionsv1.JSON) (map[string]any, error) {
+func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, inst *pmcorev1alpha1.PlatformMesh, templateVars apiextensionsv1.JSON) (map[string]any, map[string]struct{}, error) {
 	log := logger.LoadLoggerFromContext(ctx).ChildLogger("subroutine", r.GetName())
 
 	// The infra section is needed too: services may depend on infra HelmReleases, which
 	// carry their own enabled flags.
 	infraProfileYaml, componentsProfileYaml, err := r.loadProfileSections(ctx, inst)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to load profile from ConfigMap")
+		return nil, nil, errors.Wrap(err, "Failed to load profile from ConfigMap")
 	}
 
 	// Parse components profile as YAML to get the base structure
 	var componentsProfileMap map[string]any
 	if err := yaml.Unmarshal([]byte(componentsProfileYaml), &componentsProfileMap); err != nil {
-		return nil, errors.Wrap(err, "Failed to parse components profile as YAML")
+		return nil, nil, errors.Wrap(err, "Failed to parse components profile as YAML")
 	}
 
 	var infraProfileMap map[string]any
 	if err := yaml.Unmarshal([]byte(infraProfileYaml), &infraProfileMap); err != nil {
-		return nil, errors.Wrap(err, "Failed to parse infra profile as YAML")
+		return nil, nil, errors.Wrap(err, "Failed to parse infra profile as YAML")
 	}
 
 	exposure := getExposureParams(inst)
@@ -571,7 +577,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	var templateVarsMap map[string]any
 	if len(templateVars.Raw) > 0 {
 		if err := json.Unmarshal(templateVars.Raw, &templateVarsMap); err != nil {
-			return nil, errors.Wrap(err, "Failed to unmarshal templateVars for components profile")
+			return nil, nil, errors.Wrap(err, "Failed to unmarshal templateVars for components profile")
 		}
 	} else {
 		templateVarsMap = make(map[string]any)
@@ -582,7 +588,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	// keys leak into the infra resolution.
 	infraVars, err := merge.MergeMaps(infraProfileMap, templateVarsMap, log)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to merge infra profile with templateVars")
+		return nil, nil, errors.Wrap(err, "Failed to merge infra profile with templateVars")
 	}
 	infraNamespace := infraHelmReleaseNamespace(infraVars, inst.Namespace)
 
@@ -590,7 +596,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	// templateVars take precedence over profile values
 	templateVarsMap, err = merge.MergeMaps(componentsProfileMap, templateVarsMap, log)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to merge profile-components.yaml with templateVars")
+		return nil, nil, errors.Wrap(err, "Failed to merge profile-components.yaml with templateVars")
 	}
 
 	// Inject exposure-derived vars so profile templates like {{ .traefikClusterIP }} render correctly.
@@ -606,20 +612,20 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	// Templates can use {{ .baseDomain }} instead of {{ .Values.baseDomain }}
 	tmpl, err := template.New("profile-components").Funcs(templateFuncMap()).Parse(componentsProfileYaml)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to parse profile-components.yaml template")
+		return nil, nil, errors.Wrap(err, "Failed to parse profile-components.yaml template")
 	}
 
 	var buf bytes.Buffer
 	// Render profile-components.yaml template with tv directly (not wrapped in Values)
 	// This allows templates to use {{ .baseDomain }} instead of {{ .Values.baseDomain }}
 	if err := tmpl.Execute(&buf, templateVarsMap); err != nil {
-		return nil, errors.Wrap(err, "Failed to execute profile-components.yaml template")
+		return nil, nil, errors.Wrap(err, "Failed to execute profile-components.yaml template")
 	}
 
 	// Now parse the rendered YAML into a generic values map
 	values := map[string]any{}
 	if err := yaml.Unmarshal(buf.Bytes(), &values); err != nil {
-		return nil, errors.Wrap(err, "Failed to unmarshal rendered profile-components.yaml")
+		return nil, nil, errors.Wrap(err, "Failed to unmarshal rendered profile-components.yaml")
 	}
 
 	// Extract services from the rendered profile-components.yaml
@@ -643,7 +649,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	if len(inst.Spec.Values.Raw) > 0 {
 		var specValues map[string]any
 		if err := json.Unmarshal(inst.Spec.Values.Raw, &specValues); err != nil {
-			return nil, errors.Wrap(err, "Failed to parse PlatformMesh.spec.Values")
+			return nil, nil, errors.Wrap(err, "Failed to parse PlatformMesh.spec.Values")
 		}
 		// Check if services are under a "services" key
 		if services, ok := specValues["services"].(map[string]any); ok {
@@ -665,7 +671,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 		}
 		renderedServices, err := renderTemplatesInValue(specServices, wrappedTemplateData)
 		if err != nil {
-			return nil, errors.Wrap(err, "Failed to render templates in PlatformMesh.spec.Values services")
+			return nil, nil, errors.Wrap(err, "Failed to render templates in PlatformMesh.spec.Values services")
 		}
 		if renderedMap, ok := renderedServices.(map[string]any); ok {
 			specServices = renderedMap
@@ -675,7 +681,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	// Deep merge specServices into baseServices (specServices takes precedence)
 	mergedServices, err := merge.MergeMaps(baseServices, specServices, log)
 	if err != nil {
-		return nil, errors.Wrap(err, "Failed to merge services from PlatformMesh.spec.Values with profile-components.yaml services")
+		return nil, nil, errors.Wrap(err, "Failed to merge services from PlatformMesh.spec.Values with profile-components.yaml services")
 	}
 
 	// deploymentNamespace: where deployment CRs live (configurable via profile)
@@ -739,7 +745,7 @@ func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, 
 	}
 	data["baseDomainWithPort"] = exposure.baseDomainWithPort()
 
-	return data, nil
+	return data, disabled, nil
 }
 
 // calculateSyncWaves calculates ArgoCD sync waves based on dependsOn relationships
@@ -1108,13 +1114,13 @@ func (r *DeploymentSubroutine) renderAndApplyRuntimeTemplates(ctx context.Contex
 
 // renderAndApplyComponentsInfraTemplates renders gotemplates/components/infra with profile-components.yaml
 // and applies the resulting manifests to the infra cluster.
-func (r *DeploymentSubroutine) renderAndApplyComponentsInfraTemplates(ctx context.Context, inst *pmcorev1alpha1.PlatformMesh, templateVars apiextensionsv1.JSON) error {
+func (r *DeploymentSubroutine) renderAndApplyComponentsInfraTemplates(ctx context.Context, inst *pmcorev1alpha1.PlatformMesh, templateVars apiextensionsv1.JSON) (map[string]struct{}, error) {
 	log := logger.LoadLoggerFromContext(ctx).ChildLogger("subroutine", r.GetName())
 
-	tmplVars, err := r.buildComponentsTemplateVars(ctx, inst, templateVars)
+	tmplVars, disabled, err := r.buildComponentsTemplateVars(ctx, inst, templateVars)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to build components template data for infra")
-		return err
+		return nil, err
 	}
 
 	deploymentTech, _ := tmplVars["deploymentTechnology"].(string)
@@ -1123,7 +1129,7 @@ func (r *DeploymentSubroutine) renderAndApplyComponentsInfraTemplates(ctx contex
 	skipFile := deploymentTechFileFilter(deploymentTech, log)
 	postProcess := r.infraManifestPostProcess(ctx, log)
 
-	return r.renderAndApplyTemplates(ctx, r.gotemplatesComponentsDir+"/infra", tmplVars, r.clientInfra, log, "components-infra", skipFile, postProcess)
+	return disabled, r.renderAndApplyTemplates(ctx, r.gotemplatesComponentsDir+"/infra", tmplVars, r.clientInfra, log, "components-infra", skipFile, postProcess)
 }
 
 // renderAndApplyComponentsRuntimeTemplates renders gotemplates/components/runtime with profile-components.yaml
@@ -1131,7 +1137,7 @@ func (r *DeploymentSubroutine) renderAndApplyComponentsInfraTemplates(ctx contex
 func (r *DeploymentSubroutine) renderAndApplyComponentsRuntimeTemplates(ctx context.Context, inst *pmcorev1alpha1.PlatformMesh, templateVars apiextensionsv1.JSON) error {
 	log := logger.LoadLoggerFromContext(ctx).ChildLogger("subroutine", r.GetName())
 
-	tmplVars, err := r.buildComponentsTemplateVars(ctx, inst, templateVars)
+	tmplVars, _, err := r.buildComponentsTemplateVars(ctx, inst, templateVars)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to build components template data for runtime")
 		return err
