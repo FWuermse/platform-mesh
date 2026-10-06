@@ -421,7 +421,7 @@ data:
 	require.NoError(t, err)
 
 	// Both resources must be applied (Namespace may appear twice due to pre-apply + main pass).
-	var kinds []string
+	kinds := make([]string, 0, len(rec.records))
 	for _, r := range rec.records {
 		kinds = append(kinds, r.Kind)
 	}
