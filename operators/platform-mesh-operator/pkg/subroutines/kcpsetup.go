@@ -236,7 +236,7 @@ func (r *KcpsetupSubroutine) createKcpResources(ctx context.Context, config *res
 		}
 	}
 
-	err = ApplyDirStructure(ctx, dir, "root", config, templateData, inst, r.kcpHelper)
+	err = ApplyDirStructure(ctx, dir, "root", config, templateData, inst, r.kcpHelper, r.cfg.Subroutines.Deployment.SkipSelfManaged)
 	if err != nil {
 		log.Err(err).Msg("Failed to apply dir structure")
 		return gcerrors.Wrap(err, "Failed to apply dir structure")

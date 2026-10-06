@@ -607,6 +607,7 @@ func WaitForWorkspace(
 func ApplyManifestFromFile(
 	ctx context.Context,
 	path string, k8sClient ctrlruntimeclient.Client, templateData map[string]any, wsPath string, inst *pmcorev1alpha1.PlatformMesh,
+	skipSelfManaged bool,
 ) error {
 	log := logger.LoadLoggerFromContext(ctx)
 
@@ -615,6 +616,12 @@ func ApplyManifestFromFile(
 		return err
 	}
 	if obj.Object == nil {
+		return nil
+	}
+
+	if skipSelfManaged && obj.GetLabels()["platform-mesh.io/self-managed"] == "true" {
+		log.Debug().Str("file", path).Str("kind", obj.GetKind()).Str("name", obj.GetName()).
+			Msg("Skipping self-managed resource")
 		return nil
 	}
 
@@ -682,6 +689,7 @@ func ApplyDirStructure(
 	templateData map[string]any,
 	inst *pmcorev1alpha1.PlatformMesh,
 	kcpHelper KcpHelper,
+	skipSelfManaged bool,
 ) error {
 	log := logger.LoadLoggerFromContext(ctx).ChildLogger("subroutine", "")
 
@@ -699,7 +707,7 @@ func ApplyDirStructure(
 	for _, file := range files {
 		log.Debug().Str("file", file).Msg("Applying file")
 		path := filepath.Join(dir, file)
-		err := ApplyManifestFromFile(ctx, path, k8sClient, templateData, kcpPath, inst)
+		err := ApplyManifestFromFile(ctx, path, k8sClient, templateData, kcpPath, inst, skipSelfManaged)
 		if err != nil {
 			log.Warn().Err(err).Str("file", path).Msg("Failed to apply manifest file, continuing to next file in directory")
 			errApplyManifests = err
@@ -727,7 +735,7 @@ func ApplyDirStructure(
 			}
 		}
 
-		err = ApplyDirStructure(ctx, dir+"/"+wsDir, wsPath, config, templateData, inst, kcpHelper)
+		err = ApplyDirStructure(ctx, dir+"/"+wsDir, wsPath, config, templateData, inst, kcpHelper, skipSelfManaged)
 		if err != nil {
 			return err
 		}

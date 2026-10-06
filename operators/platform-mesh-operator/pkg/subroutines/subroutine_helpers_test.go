@@ -426,21 +426,21 @@ func (s *HelperTestSuite) TestApplyManifestFromFile() {
 	cl := new(mocks.Client)
 	// Server-side apply (no Get needed)
 	cl.EXPECT().Apply(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-	err := ApplyManifestFromFile(s.T().Context(), "../../manifests/kcp/workspace-platform-mesh-system.yaml", cl, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{})
+	err := ApplyManifestFromFile(s.T().Context(), "../../manifests/kcp/workspace-platform-mesh-system.yaml", cl, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{}, false)
 	s.Assert().Nil(err)
 
-	err = ApplyManifestFromFile(s.T().Context(), "invalid", nil, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{})
+	err = ApplyManifestFromFile(s.T().Context(), "invalid", nil, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{}, false)
 	s.Assert().Error(err)
 
-	err = ApplyManifestFromFile(s.T().Context(), "./kcpsetup.go", nil, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{})
+	err = ApplyManifestFromFile(s.T().Context(), "./kcpsetup.go", nil, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{}, false)
 	s.Assert().Error(err)
 
 	cl.EXPECT().Apply(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("error")).Once()
-	err = ApplyManifestFromFile(s.T().Context(), "../../manifests/kcp/workspace-platform-mesh-system.yaml", cl, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{})
+	err = ApplyManifestFromFile(s.T().Context(), "../../manifests/kcp/workspace-platform-mesh-system.yaml", cl, make(map[string]any), "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{}, false)
 	s.Assert().Error(err)
 
 	cl.EXPECT().Apply(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
-	err = ApplyManifestFromFile(s.T().Context(), "../../manifests/kcp/02-root/workspace-orgs.yaml", cl, make(map[string]any), "root:orgs", &pmcorev1alpha1.PlatformMesh{})
+	err = ApplyManifestFromFile(s.T().Context(), "../../manifests/kcp/02-root/workspace-orgs.yaml", cl, make(map[string]any), "root:orgs", &pmcorev1alpha1.PlatformMesh{}, false)
 	s.Assert().Nil(err)
 
 	cl.EXPECT().Apply(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
@@ -452,6 +452,53 @@ func (s *HelperTestSuite) TestApplyManifestFromFile() {
 		KCP: config.OperatorConfig{}.KCP,
 	}
 	ctx := context.WithValue(s.T().Context(), keys.ConfigCtxKey, operatorCfg)
-	err = ApplyManifestFromFile(ctx, "../../manifests/kcp/04-platform-mesh-system/mutatingwebhookconfiguration-admissionregistration.k8s.io.yaml", cl, templateData, "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{})
+	err = ApplyManifestFromFile(ctx, "../../manifests/kcp/04-platform-mesh-system/mutatingwebhookconfiguration-admissionregistration.k8s.io.yaml", cl, templateData, "root:platform-mesh-system", &pmcorev1alpha1.PlatformMesh{}, false)
 	s.Assert().Nil(err)
+}
+
+func (s *HelperTestSuite) TestApplyManifestFromFile_SkipSelfManaged_SkipsWhenEnabled() {
+	tmp, err := os.CreateTemp(s.T().TempDir(), "self-managed-*.yaml")
+	s.Require().NoError(err)
+	_, err = tmp.WriteString(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: self-managed-cm
+  namespace: default
+  labels:
+    platform-mesh.io/self-managed: "true"
+data:
+  k: v
+`)
+	s.Require().NoError(err)
+	s.Require().NoError(tmp.Close())
+
+	cl := new(mocks.Client)
+	// Apply must NOT be called — if it is, the test will fail on unexpected call.
+	err = ApplyManifestFromFile(s.T().Context(), tmp.Name(), cl, make(map[string]any), "root", &pmcorev1alpha1.PlatformMesh{}, true)
+	s.Assert().Nil(err)
+	cl.AssertNotCalled(s.T(), "Apply")
+}
+
+func (s *HelperTestSuite) TestApplyManifestFromFile_SkipSelfManaged_AppliesWhenDisabled() {
+	tmp, err := os.CreateTemp(s.T().TempDir(), "self-managed-*.yaml")
+	s.Require().NoError(err)
+	_, err = tmp.WriteString(`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: self-managed-cm
+  namespace: default
+  labels:
+    platform-mesh.io/self-managed: "true"
+data:
+  k: v
+`)
+	s.Require().NoError(err)
+	s.Require().NoError(tmp.Close())
+
+	cl := new(mocks.Client)
+	cl.EXPECT().Apply(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
+	// Feature is disabled — resource must be applied despite the label.
+	err = ApplyManifestFromFile(s.T().Context(), tmp.Name(), cl, make(map[string]any), "root", &pmcorev1alpha1.PlatformMesh{}, false)
+	s.Assert().Nil(err)
+	cl.AssertExpectations(s.T())
 }

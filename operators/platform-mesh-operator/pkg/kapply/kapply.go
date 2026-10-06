@@ -78,6 +78,9 @@ type Options struct {
 	DryRun bool
 	// WaitAfterCRDs pauses briefly and refreshes discovery after CRDs are applied.
 	WaitAfterCRDs time.Duration
+	// SkipSelfManaged skips applying resources that carry the label
+	// "platform-mesh.io/self-managed": "true". Disabled by default.
+	SkipSelfManaged bool
 }
 
 // Option is a functional option for ApplyDir.
@@ -91,6 +94,7 @@ func WithPreapplyKinds(kinds ...string) Option {
 }
 func WithDryRun() Option                       { return func(o *Options) { o.DryRun = true } }
 func WithWaitAfterCRDs(d time.Duration) Option { return func(o *Options) { o.WaitAfterCRDs = d } }
+func WithSkipSelfManaged() Option              { return func(o *Options) { o.SkipSelfManaged = true } }
 
 // ApplyDir builds the Kustomize stack in dir and applies all objects via SSA.
 func ApplyDir(ctx context.Context, dir string, c Clients, opts ...Option) error {
@@ -170,6 +174,10 @@ func applyOne(ctx context.Context, yamlDoc string, c Clients, o *Options) error 
 		return fmt.Errorf("yaml unmarshal: %w", err)
 	}
 	u := &unstructured.Unstructured{Object: obj}
+
+	if o.SkipSelfManaged && u.GetLabels()["platform-mesh.io/self-managed"] == "true" {
+		return nil
+	}
 
 	gvk := u.GroupVersionKind()
 	mapping, err := c.Mapper.RESTMapping(schema.GroupKind{Group: gvk.Group, Kind: gvk.Kind}, gvk.Version)

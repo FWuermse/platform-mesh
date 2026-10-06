@@ -39,6 +39,7 @@ type DeploymentSubroutineConfig struct {
 	AuthorizationWebhookSecretName   string
 	AuthorizationWebhookSecretCAName string
 	EnableIstio                      bool
+	SkipSelfManaged                  bool
 }
 
 type KcpSetupSubroutineConfig struct {
@@ -175,6 +176,7 @@ func (c *OperatorConfig) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&c.Subroutines.Deployment.AuthorizationWebhookSecretName, "authorization-webhook-secret-name", c.Subroutines.Deployment.AuthorizationWebhookSecretName, "Authorization webhook secret name")
 	fs.StringVar(&c.Subroutines.Deployment.AuthorizationWebhookSecretCAName, "authorization-webhook-secret-ca-name", c.Subroutines.Deployment.AuthorizationWebhookSecretCAName, "Authorization webhook CA secret name")
 	fs.BoolVar(&c.Subroutines.Deployment.EnableIstio, "subroutines-deployment-enable-istio", c.Subroutines.Deployment.EnableIstio, "Enable Istio integration in deployment subroutine")
+	fs.BoolVar(&c.Subroutines.Deployment.SkipSelfManaged, "subroutines-deployment-skip-self-managed", c.Subroutines.Deployment.SkipSelfManaged, "Skip applying resources labelled platform-mesh.io/self-managed=true")
 
 	fs.BoolVar(&c.Subroutines.KcpSetup.Enabled, "subroutines-kcp-setup-enabled", c.Subroutines.KcpSetup.Enabled, "Enable KCP setup subroutine")
 	fs.StringVar(&c.Subroutines.KcpSetup.DomainCertificateCASecretName, "domain-certificate-ca-secret-name", c.Subroutines.KcpSetup.DomainCertificateCASecretName, "Domain certificate secret name")
