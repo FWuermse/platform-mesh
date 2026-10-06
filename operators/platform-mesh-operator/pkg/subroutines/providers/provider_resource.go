@@ -148,10 +148,7 @@ func (r *ProviderResourceSubroutine) Finalize(ctx context.Context, obj ctrlrunti
 	return subroutines.StopWithRequeue(r.limiter.When(inst), "Waiting for Provider to be deleted"), nil
 }
 
-func (r *ProviderResourceSubroutine) Finalizers(obj ctrlruntimeclient.Object) []string {
-	if !obj.(*pmprovidersv1alpha1.ManagedProvider).Spec.CleanupOnDelete {
-		return []string{}
-	}
+func (r *ProviderResourceSubroutine) Finalizers(_ ctrlruntimeclient.Object) []string {
 	return []string{providerResourceFinalizer}
 }
 
