@@ -138,6 +138,8 @@ func TestGraphQLErrorPresenterWithUserMessage(t *testing.T) {
 	//Then
 	assert.Equal(t, "you don't have access to this resource", result.Message)
 	assert.Equal(t, "FORBIDDEN", result.Extensions["code"])
+	assert.Equal(t, "you don't have access to this resource", result.Extensions["userError"])
+	assert.Equal(t, "user with id abc has no access to resource XYZ", result.Extensions["technicalError"])
 }
 
 func TestGraphQLErrorPresenterWithoutUserMessageKeepsTechnicalMessage(t *testing.T) {
@@ -153,4 +155,24 @@ func TestGraphQLErrorPresenterWithoutUserMessageKeepsTechnicalMessage(t *testing
 	//Then
 	assert.Equal(t, "some internal error", result.Message)
 	assert.Empty(t, result.Extensions)
+}
+
+func TestGraphQLErrorPresenterWithUserMessageNoCode(t *testing.T) {
+	//Given
+	presenter := GraphQLErrorPresenter()
+	technical := errors.New("namespace not found: tenant-abc/project-xyz")
+	sentryErr, ok := AsSentryError(SentryError(technical))
+	assert.True(t, ok)
+	_ = sentryErr.WithUserMessage("Failed to retrieve component. Please try again.", "")
+
+	ctx := pmcontext.AddTenantToContext(context.Background(), "test")
+
+	//When
+	result := presenter(ctx, sentryErr)
+
+	//Then
+	assert.Equal(t, "Failed to retrieve component. Please try again.", result.Message)
+	assert.Equal(t, "Failed to retrieve component. Please try again.", result.Extensions["userError"])
+	assert.Equal(t, "namespace not found: tenant-abc/project-xyz", result.Extensions["technicalError"])
+	assert.Nil(t, result.Extensions["code"])
 }
