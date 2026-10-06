@@ -325,16 +325,16 @@ func pruneDisabledDependencies(services map[string]any, disabled map[string]stru
 	}
 }
 
-// deleteDisabledHelmReleases deletes HelmRelease objects that were previously
-// created by the platform-mesh operator but whose component is now disabled.
-// Entries in disabled are keyed as "namespace/name".
-func deleteDisabledHelmReleases(ctx context.Context, infraClient ctrlruntimeclient.Client, disabled map[string]struct{}, log *logger.Logger) error {
+// deleteHelmReleases deletes HelmRelease objects on the cluster for the given
+// set of keys ("namespace/name"). Not-found errors are silently ignored (idempotent).
+// Any other error is returned to the caller, which causes the reconcile to be requeued.
+func deleteHelmReleases(ctx context.Context, infraClient ctrlruntimeclient.Client, toDelete map[string]struct{}, log *logger.Logger) error {
 	helmReleaseGVK := schema.GroupVersionKind{
 		Group:   "helm.toolkit.fluxcd.io",
 		Version: "v2",
 		Kind:    "HelmRelease",
 	}
-	for key := range disabled {
+	for key := range toDelete {
 		parts := strings.SplitN(key, "/", 2)
 		if len(parts) != 2 {
 			continue
@@ -350,10 +350,10 @@ func deleteDisabledHelmReleases(ctx context.Context, infraClient ctrlruntimeclie
 			if apierrors.IsNotFound(err) {
 				continue
 			}
-			log.Error().Err(err).Str("namespace", namespace).Str("name", name).Msg("Failed to delete disabled HelmRelease")
-			return errors.Wrap(err, "failed to delete disabled HelmRelease %s/%s", namespace, name)
+			log.Error().Err(err).Str("namespace", namespace).Str("name", name).Msg("Failed to delete HelmRelease")
+			return errors.Wrap(err, "failed to delete HelmRelease %s/%s", namespace, name)
 		}
-		log.Info().Str("namespace", namespace).Str("name", name).Msg("Deleted disabled HelmRelease")
+		log.Info().Str("namespace", namespace).Str("name", name).Msg("Deleted HelmRelease")
 	}
 	return nil
 }

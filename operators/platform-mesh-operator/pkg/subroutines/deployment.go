@@ -253,9 +253,10 @@ func (r *DeploymentSubroutine) Process(ctx context.Context, runtimeObj ctrlrunti
 	}
 	log.Debug().Msg("Successfully rendered and applied components infra templates")
 
-	oErr = deleteDisabledHelmReleases(ctx, r.clientInfra, disabled, log)
+	// delete only disabled HelmReleases
+	oErr = deleteHelmReleases(ctx, r.clientInfra, disabled, log)
 	if oErr != nil {
-		log.Error().Err(oErr).Msg("Failed to delete disabled HelmReleases")
+		log.Error().Err(oErr).Msg("Failed to delete HelmReleases")
 		return subroutines.OK(), oErr
 	}
 
@@ -549,6 +550,7 @@ func (r *DeploymentSubroutine) buildRuntimeTemplateVars(ctx context.Context, ins
 
 // buildComponentsTemplateVars parses components profile using TemplateVars and produces the data
 // structure expected by gotemplates/components (root keys: values, releaseNamespace).
+// The second return value is the set of HelmRelease keys ("namespace/name") that are disabled and meant to be removed.
 func (r *DeploymentSubroutine) buildComponentsTemplateVars(ctx context.Context, inst *pmcorev1alpha1.PlatformMesh, templateVars apiextensionsv1.JSON) (map[string]any, map[string]struct{}, error) {
 	log := logger.LoadLoggerFromContext(ctx).ChildLogger("subroutine", r.GetName())
 
