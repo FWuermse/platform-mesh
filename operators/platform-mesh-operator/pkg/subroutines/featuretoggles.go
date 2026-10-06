@@ -182,7 +182,7 @@ func (r *FeatureToggleSubroutine) applyKcpManifests(
 	for k, v := range getExposureParams(inst).templateVars(operatorCfg.KCP) {
 		tplValues[k] = v
 	}
-	err = ApplyDirStructure(ctx, dir, "root", cfg, tplValues, inst, r.kcpHelper)
+	err = ApplyDirStructure(ctx, dir, "root", cfg, tplValues, inst, r.kcpHelper, operatorCfg.Subroutines.Deployment.IgnoredResources)
 	if err != nil {
 		log.Err(err).Msg("Failed to apply dir structure")
 		return subroutines.OK(), gcerrors.Wrap(err, "Failed to apply dir structure")

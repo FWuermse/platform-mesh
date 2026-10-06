@@ -607,6 +607,7 @@ func WaitForWorkspace(
 func ApplyManifestFromFile(
 	ctx context.Context,
 	path string, k8sClient ctrlruntimeclient.Client, templateData map[string]any, wsPath string, inst *pmcorev1alpha1.PlatformMesh,
+	ignoredResources []config.IgnoredResource,
 ) error {
 	log := logger.LoadLoggerFromContext(ctx)
 
@@ -615,6 +616,12 @@ func ApplyManifestFromFile(
 		return err
 	}
 	if obj.Object == nil {
+		return nil
+	}
+
+	if isIgnored(obj, wsPath, ignoredResources) {
+		log.Debug().Str("file", path).Str("kind", obj.GetKind()).Str("name", obj.GetName()).
+			Msg("Skipping ignored resource")
 		return nil
 	}
 
@@ -682,6 +689,7 @@ func ApplyDirStructure(
 	templateData map[string]any,
 	inst *pmcorev1alpha1.PlatformMesh,
 	kcpHelper KcpHelper,
+	ignoredResources []config.IgnoredResource,
 ) error {
 	log := logger.LoadLoggerFromContext(ctx).ChildLogger("subroutine", "")
 
@@ -699,7 +707,7 @@ func ApplyDirStructure(
 	for _, file := range files {
 		log.Debug().Str("file", file).Msg("Applying file")
 		path := filepath.Join(dir, file)
-		err := ApplyManifestFromFile(ctx, path, k8sClient, templateData, kcpPath, inst)
+		err := ApplyManifestFromFile(ctx, path, k8sClient, templateData, kcpPath, inst, ignoredResources)
 		if err != nil {
 			log.Warn().Err(err).Str("file", path).Msg("Failed to apply manifest file, continuing to next file in directory")
 			errApplyManifests = err
@@ -727,7 +735,7 @@ func ApplyDirStructure(
 			}
 		}
 
-		err = ApplyDirStructure(ctx, dir+"/"+wsDir, wsPath, config, templateData, inst, kcpHelper)
+		err = ApplyDirStructure(ctx, dir+"/"+wsDir, wsPath, config, templateData, inst, kcpHelper, ignoredResources)
 		if err != nil {
 			return err
 		}
@@ -892,4 +900,29 @@ func getExternalKcpHost(inst *pmcorev1alpha1.PlatformMesh, cfg *config.OperatorC
 	}
 	kcpUrl := inst.Spec.Exposure.Protocol + "://" + inst.Spec.Exposure.BaseDomain + ":" + fmt.Sprintf("%d", inst.Spec.Exposure.Port)
 	return kcpUrl
+}
+
+// isIgnored returns true when obj matches any entry in the ignore list.
+// An empty string in an IgnoredResource field is a wildcard that matches any value.
+func isIgnored(obj unstructured.Unstructured, kcpPath string, ignored []config.IgnoredResource) bool {
+	gvk := obj.GroupVersionKind()
+	for _, ir := range ignored {
+		if ir.Path != "" && ir.Path != kcpPath {
+			continue
+		}
+		if ir.Group != "" && ir.Group != gvk.Group {
+			continue
+		}
+		if ir.Version != "" && ir.Version != gvk.Version {
+			continue
+		}
+		if ir.Kind != "" && ir.Kind != gvk.Kind {
+			continue
+		}
+		if ir.Name != "" && ir.Name != obj.GetName() {
+			continue
+		}
+		return true
+	}
+	return false
 }
