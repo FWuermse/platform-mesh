@@ -425,6 +425,14 @@ func (s *KindTestSuite) createReleases(ctx context.Context) error {
 	if err := ApplyManifestFromFile(ctx, "../../../test/e2e/kind/yaml/flux2-v2.6.4/flux2-install.yaml", s.client, make(map[string]string)); err != nil {
 		return err
 	}
+	// The image automation controllers are part of the stock install manifest but nothing in
+	// the e2e uses them; drop them so their requests do not count against the CI runner.
+	for _, name := range []string{"image-automation-controller", "image-reflector-controller"} {
+		dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "flux-system"}}
+		if err := s.client.Delete(ctx, dep); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("deleting unused flux deployment %s: %w", name, err)
+		}
+	}
 	avail := s.Eventually(func() bool {
 		deployment := &appsv1.Deployment{}
 
@@ -728,8 +736,19 @@ func (s *KindTestSuite) dumpDiagnostics(ctx context.Context) {
 	} else {
 		for _, pod := range podList.Items {
 			s.logger.Info().Msgf("diag: Pod %s phase=%s ready=%v", pod.Name, pod.Status.Phase, isPodReady(&pod))
+			for _, c := range pod.Status.Conditions {
+				if c.Status != corev1.ConditionTrue && c.Message != "" {
+					s.logger.Info().Msgf("diag:   condition %s=%s reason=%s message=%s", c.Type, c.Status, c.Reason, c.Message)
+				}
+			}
+			for _, cs := range pod.Status.InitContainerStatuses {
+				s.logger.Info().Msgf("diag:   init container %s ready=%v restarts=%d state=%+v", cs.Name, cs.Ready, cs.RestartCount, cs.State)
+			}
 			for _, cs := range pod.Status.ContainerStatuses {
 				s.logger.Info().Msgf("diag:   container %s ready=%v restarts=%d state=%+v", cs.Name, cs.Ready, cs.RestartCount, cs.State)
+				if t := cs.LastTerminationState.Terminated; t != nil {
+					s.logger.Info().Msgf("diag:   container %s last terminated reason=%s exitCode=%d message=%q", cs.Name, t.Reason, t.ExitCode, t.Message)
+				}
 			}
 		}
 	}

@@ -114,12 +114,12 @@ jobs:
           GITHUB_WORKFLOW: ci
 
   # End-to-end suite: spins up a kind cluster, installs the operator and
-  # waits for the full PlatformMesh stack to come up (test/e2e/kind, build
-  # tag `e2e`). Needs the larger org runner: the stack does not fit on the
-  # default ubuntu-latest runner.
+  # waits for the PlatformMesh stack to come up (test/e2e/kind, build tag
+  # `e2e`). The e2e profile disables observability so the stack fits on the
+  # default runner.
   test-e2e:
-    runs-on: ubuntu-latest-large
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
     env:
       GOPRIVATE: github.com/platform-mesh
     steps:
