@@ -45,6 +45,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -195,6 +196,32 @@ func (suite *ContentConfigurationTestSuite) SetupSuite() {
 		}
 		return rt
 	})
+	// The provider drops a virtual workspace URL whose first watch fails and only retries it when
+	// the endpoint slice changes again, so kcp must already answer discovery on every endpoint
+	// before the provider starts. Right after creation the slice can list a URL that still 404s.
+	// The provider's wildcard cache talks to <url>/clusters/*, and the bare URL never serves
+	// discovery, so probe the same path.
+	suite.Eventually(func() bool {
+		if err := suite.cli.Cluster(suite.provider).Get(ctx, types.NamespacedName{Name: "ui.platform-mesh.io"}, aes); err != nil {
+			return false
+		}
+		if len(aes.Status.APIExportEndpoints) == 0 {
+			return false
+		}
+		for _, endpoint := range aes.Status.APIExportEndpoints {
+			endpointConfig := rest.CopyConfig(providerConfig)
+			endpointConfig.Host = strings.TrimSuffix(endpoint.URL, "/") + "/clusters/*"
+			dc, err := discovery.NewDiscoveryClientForConfig(endpointConfig)
+			if err != nil {
+				return false
+			}
+			if _, err := dc.ServerGroups(); err != nil {
+				return false
+			}
+		}
+		return true
+	}, 4*defaultTestTimeout, defaultTickInterval, "APIExport virtual workspace for ui.platform-mesh.io did not start serving discovery")
+
 	provider, err := apiexport.New(providerConfig, "ui.platform-mesh.io", apiexport.Options{Scheme: scheme.Scheme})
 	suite.Require().NoError(err, "failed to create APIExport provider for ui.platform-mesh.io")
 
