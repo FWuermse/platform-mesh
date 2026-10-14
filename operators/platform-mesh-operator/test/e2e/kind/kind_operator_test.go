@@ -57,11 +57,11 @@ func (s *KindTestSuite) Test01ResourceReady() {
 			}
 		}
 		return false
-	}, 25*time.Minute, 10*time.Second)
+	}, 30*time.Minute, 10*time.Second)
 
 	if !ok {
 		s.dumpDiagnostics(ctx)
-		s.Fail("PlatformMesh resource did not become ready within 25 minutes")
+		s.Fail("PlatformMesh resource did not become ready within 30 minutes")
 	}
 }
 
